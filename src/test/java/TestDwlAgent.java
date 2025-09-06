@@ -1,11 +1,13 @@
+import engine.core.MarioGame;
+import engine.core.MarioResult;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-import engine.core.MarioGame;
-import engine.core.MarioResult;
-
-public class PlayLevel {
+/**
+ * Test class for Phase 2 - Basic FSM functionality of dwl agent
+ */
+public class TestDwlAgent {
     public static void printResults(MarioResult result) {
         System.out.println("****************************************************************");
         System.out.println("Game Status: " + result.getGameStatus().toString() +
@@ -27,15 +29,23 @@ public class PlayLevel {
         try {
             content = new String(Files.readAllBytes(Paths.get(filepath)));
         } catch (IOException e) {
+            System.err.println("Error loading level: " + e.getMessage());
         }
         return content;
     }
 
     public static void main(String[] args) {
         MarioGame game = new MarioGame();
-        // printResults(game.playGame(getLevel("../levels/original/lvl-1.txt"), 200, 0));
+        
         System.out.println("Testing Phase 2 - dwl Human-like Mario Agent with FSM");
         System.out.println("States: EXPLORING <-> JUMPING");
-        printResults(game.runGame(new agents.dwl.Agent(), getLevel("./levels/original/lvl-1.txt"), 20, 0, true));
+        
+        try {
+            // Test with dwl agent on first Mario level
+            printResults(game.runGame(new agents.dwl.Agent(), getLevel("./levels/original/lvl-1.txt"), 20, 0, true));
+        } catch (Exception e) {
+            System.err.println("Error running dwl agent: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 }
