@@ -26,6 +26,11 @@ public class Agent implements MarioAgent {
     private float lastMarioX = 0;
     private int framesSinceProgress = 0;
     
+    // Surprise reaction system (Phase 3)
+    private int panicCounter = 0;
+    private int[] lastEnemyPositions = new int[10]; // Track up to 10 enemy positions
+    private int lastEnemyCount = 0;
+    
     // Human-like behavior parameters
     private static final int HESITATION_DURATION = 15; // frames to hesitate
     private static final int STUCK_THRESHOLD = 120;    // frames before considering stuck
@@ -60,6 +65,19 @@ public class Agent implements MarioAgent {
         // Update emotion system based on current game state
         emotionSystem.updateEmotions(model);
         
+        // Handle panic reaction from surprise enemies (Phase 3)
+        if (panicCounter > 0) {
+            panicCounter--;
+            // During panic, make erratic movements
+            return getPanicActions();
+        }
+        
+        // Check for surprise enemies that trigger panic
+        if (checkForSurpriseEnemies(model)) {
+            panicCounter = emotionSystem.getPanicDuration();
+            return getPanicActions(); // Immediate panic reaction
+        }
+        
         // Handle hesitation behavior
         if (hesitationCounter > 0) {
             hesitationCounter--;
@@ -67,9 +85,9 @@ public class Agent implements MarioAgent {
             return actions;
         }
         
-        // Check if we should hesitate before making risky moves
+        // Check if we should hesitate before making risky moves (Phase 3: Emotion-based)
         if (emotionSystem.shouldHesitate() && isRiskyMove(model)) {
-            hesitationCounter = HESITATION_DURATION;
+            hesitationCounter = emotionSystem.getHesitationDuration();
             return actions; // Stay still during hesitation
         }
         
@@ -92,9 +110,9 @@ public class Agent implements MarioAgent {
         // Execute current state behavior
         actions = stateImplementations[currentState.ordinal()].getActions(model, this, timer);
         
-        // Basic mistake system (Phase 3 will enhance this)
-        if (Math.random() < 0.05) { // 5% chance
-            applyMistake();
+        // Enhanced mistake system (Phase 3: Emotion-based)
+        if (emotionSystem.shouldMakeMistake()) {
+            applyRealisticMistake();
         }
         
         return actions;
@@ -106,12 +124,16 @@ public class Agent implements MarioAgent {
     }
     
     /**
-     * Initialize all FSM state implementations (Phase 2: Basic states only)
+     * Initialize all FSM state implementations (Phase 3: All states)
      */
     private void initializeStates() {
         stateImplementations = new FSMState[GameState.values().length];
         stateImplementations[GameState.EXPLORING.ordinal()] = new ExploringState();
         stateImplementations[GameState.JUMPING.ordinal()] = new JumpingState();
+        stateImplementations[GameState.COLLECTING.ordinal()] = new CollectingState();
+        stateImplementations[GameState.FLEEING.ordinal()] = new FleeingState();
+        stateImplementations[GameState.STUCK.ordinal()] = new StuckState();
+        stateImplementations[GameState.HESITATING.ordinal()] = new HesitatingState();
     }
     
     /**
@@ -124,24 +146,101 @@ public class Agent implements MarioAgent {
     }
     
     /**
-     * Check if the next move would be risky (big jumps, near enemies, etc.)
+     * Check if the next move would be risky (Phase 3: Enhanced risk assessment)
      */
     private boolean isRiskyMove(MarioForwardModel model) {
-        // Simple risk assessment - check for gaps or enemies nearby
         int[][] observation = model.getMarioSceneObservation();
+        int[][] enemies = model.getMarioEnemiesObservation();
         int marioRow = observation.length / 2;
         int marioCol = observation[0].length / 2;
         
-        // Check for gaps in front of Mario
-        if (marioCol + 2 < observation[0].length) {
-            for (int r = marioRow; r < observation.length - 1; r++) {
-                if (observation[r][marioCol + 2] == 0) {
-                    return true; // Gap detected
+        // Check for large gaps ahead
+        int gapWidth = measureGapWidth(observation, marioRow, marioCol);
+        if (gapWidth > 2) return true; // Wide gaps are risky
+        
+        // Check for high walls/obstacles
+        int obstacleHeight = measureObstacleHeight(observation, marioRow, marioCol);
+        if (obstacleHeight > 3) return true; // High obstacles are risky
+        
+        // Check for enemies nearby
+        if (hasEnemiesNearby(enemies, marioRow, marioCol)) return true;
+        
+        // Check for complex terrain (multiple obstacles in succession)
+        if (hasComplexTerrain(observation, marioRow, marioCol)) return true;
+        
+        return false;
+    }
+    
+    /**
+     * Measure width of gap ahead
+     */
+    private int measureGapWidth(int[][] observation, int marioRow, int marioCol) {
+        int gapWidth = 0;
+        for (int c = marioCol + 1; c < Math.min(observation[0].length, marioCol + 6); c++) {
+            boolean hasGround = false;
+            for (int r = marioRow + 1; r < observation.length; r++) {
+                if (observation[r][c] != 0) {
+                    hasGround = true;
+                    break;
+                }
+            }
+            if (!hasGround) {
+                gapWidth++;
+            } else {
+                break; // End of gap
+            }
+        }
+        return gapWidth;
+    }
+    
+    /**
+     * Measure height of obstacle ahead
+     */
+    private int measureObstacleHeight(int[][] observation, int marioRow, int marioCol) {
+        if (marioCol + 1 >= observation[0].length) return 0;
+        
+        int height = 0;
+        for (int r = marioRow; r >= 0; r--) {
+            if (observation[r][marioCol + 1] != 0) {
+                height++;
+            } else {
+                break;
+            }
+        }
+        return height;
+    }
+    
+    /**
+     * Check for enemies in nearby area
+     */
+    private boolean hasEnemiesNearby(int[][] enemies, int marioRow, int marioCol) {
+        for (int r = Math.max(0, marioRow - 2); r < Math.min(enemies.length, marioRow + 3); r++) {
+            for (int c = marioCol; c < Math.min(enemies[0].length, marioCol + 4); c++) {
+                if (enemies[r][c] != 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Check for complex terrain requiring careful navigation
+     */
+    private boolean hasComplexTerrain(int[][] observation, int marioRow, int marioCol) {
+        int obstacleCount = 0;
+        
+        // Count obstacles in next 5 columns
+        for (int c = marioCol + 1; c < Math.min(observation[0].length, marioCol + 6); c++) {
+            for (int r = Math.max(0, marioRow - 2); r <= marioRow + 1; r++) {
+                if (observation[r][c] != 0) {
+                    obstacleCount++;
+                    break; // Only count one obstacle per column
                 }
             }
         }
         
-        return false;
+        return obstacleCount >= 3; // 3+ obstacles in succession = complex
     }
     
     /**
@@ -166,13 +265,123 @@ public class Agent implements MarioAgent {
     }
     
     /**
-     * Apply a human-like mistake (simplified for Phase 2)
+     * Apply realistic human-like mistakes (Phase 3: Enhanced)
      */
-    private void applyMistake() {
-        // Simple mistake: occasionally miss a jump (Phase 3 will expand this)
-        if (actions[MarioActions.JUMP.getValue()] && Math.random() < 0.1) {
+    private void applyRealisticMistake() {
+        float severity = emotionSystem.getMistakeSeverity();
+        
+        // Type 1: Miss jump input (most common human mistake)
+        if (actions[MarioActions.JUMP.getValue()] && Math.random() < 0.4) {
             actions[MarioActions.JUMP.getValue()] = false;
         }
+        
+        // Type 2: Release jump too early/late (timing mistake)
+        else if (actions[MarioActions.JUMP.getValue()] && Math.random() < 0.3) {
+            // This will be handled in JumpingState with mistaken timing
+            // We'll add a flag for the jumping state to use
+        }
+        
+        // Type 3: Accidentally press speed when shouldn't (panic input)
+        else if (!actions[MarioActions.SPEED.getValue()] && Math.random() < 0.2 * severity) {
+            actions[MarioActions.SPEED.getValue()] = true;
+        }
+        
+        // Type 4: Forget to press speed when should (hesitation input)
+        else if (actions[MarioActions.SPEED.getValue()] && Math.random() < 0.25 * severity) {
+            actions[MarioActions.SPEED.getValue()] = false;
+        }
+        
+        // Type 5: Wrong directional input momentarily
+        else if (Math.random() < 0.15 * severity) {
+            if (actions[MarioActions.RIGHT.getValue()]) {
+                actions[MarioActions.RIGHT.getValue()] = false;
+                // Brief pause (human confusion)
+            }
+        }
+    }
+    
+    /**
+     * Check for surprise enemies that might trigger panic reaction
+     */
+    private boolean checkForSurpriseEnemies(MarioForwardModel model) {
+        int[][] enemies = model.getMarioEnemiesObservation();
+        int marioRow = enemies.length / 2;
+        int marioCol = enemies[0].length / 2;
+        
+        // Count current enemies in immediate vicinity
+        int currentEnemyCount = 0;
+        int[] currentPositions = new int[10];
+        int enemyIndex = 0;
+        
+        for (int r = Math.max(0, marioRow - 2); r < Math.min(enemies.length, marioRow + 3) && enemyIndex < 10; r++) {
+            for (int c = Math.max(0, marioCol - 2); c < Math.min(enemies[0].length, marioCol + 5) && enemyIndex < 10; c++) {
+                if (enemies[r][c] != 0) {
+                    currentEnemyCount++;
+                    currentPositions[enemyIndex] = r * enemies[0].length + c; // Encode position
+                    enemyIndex++;
+                }
+            }
+        }
+        
+        // Check for surprise conditions
+        boolean surpriseDetected = false;
+        
+        // Condition 1: Sudden appearance of new enemy
+        if (currentEnemyCount > lastEnemyCount) {
+            surpriseDetected = emotionSystem.shouldPanic();
+        }
+        
+        // Condition 2: Enemy moved unexpectedly close
+        if (!surpriseDetected && currentEnemyCount > 0) {
+            for (int i = 0; i < enemyIndex; i++) {
+                boolean wasPresent = false;
+                for (int j = 0; j < Math.min(lastEnemyCount, 10); j++) {
+                    if (Math.abs(currentPositions[i] - lastEnemyPositions[j]) <= 2) {
+                        wasPresent = true;
+                        break;
+                    }
+                }
+                if (!wasPresent && emotionSystem.shouldPanic()) {
+                    surpriseDetected = true;
+                    break;
+                }
+            }
+        }
+        
+        // Update tracking for next frame
+        lastEnemyCount = currentEnemyCount;
+        System.arraycopy(currentPositions, 0, lastEnemyPositions, 0, Math.min(10, enemyIndex));
+        
+        return surpriseDetected;
+    }
+    
+    /**
+     * Generate panic actions (erratic human-like behavior)
+     */
+    private boolean[] getPanicActions() {
+        boolean[] panicActions = new boolean[actions.length];
+        
+        // Random erratic movement during panic
+        double panicRandom = Math.random();
+        
+        if (panicRandom < 0.3) {
+            // Panic jump
+            panicActions[MarioActions.JUMP.getValue()] = true;
+            panicActions[MarioActions.RIGHT.getValue()] = Math.random() < 0.7;
+        } else if (panicRandom < 0.5) {
+            // Freeze in panic (common human reaction)
+            // All actions remain false
+        } else if (panicRandom < 0.7) {
+            // Panic run
+            panicActions[MarioActions.RIGHT.getValue()] = true;
+            panicActions[MarioActions.SPEED.getValue()] = true;
+        } else {
+            // Confused movement
+            panicActions[MarioActions.RIGHT.getValue()] = Math.random() < 0.5;
+            panicActions[MarioActions.JUMP.getValue()] = Math.random() < 0.3;
+        }
+        
+        return panicActions;
     }
     
     // Getter methods for states to access agent properties
@@ -181,4 +390,5 @@ public class Agent implements MarioAgent {
     public int getStuckCounter() { return stuckCounter; }
     public int getFramesSinceProgress() { return framesSinceProgress; }
     public boolean isHesitating() { return hesitationCounter > 0; }
+    public boolean isPanicking() { return panicCounter > 0; }
 }

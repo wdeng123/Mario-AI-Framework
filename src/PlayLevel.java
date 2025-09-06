@@ -34,8 +34,9 @@ public class PlayLevel {
     public static void main(String[] args) {
         MarioGame game = new MarioGame();
         // printResults(game.playGame(getLevel("../levels/original/lvl-1.txt"), 200, 0));
-        System.out.println("Testing Phase 2 - dwl Human-like Mario Agent with FSM");
-        System.out.println("States: EXPLORING <-> JUMPING");
+        System.out.println("Testing Phase 3 - dwl Human-like Mario Agent with Enhanced FSM");
+        System.out.println("States: EXPLORING, JUMPING, COLLECTING, FLEEING, STUCK, HESITATING");
+        System.out.println("Features: Emotion-based behavior, learning system, panic reactions, realistic mistakes");
         printResults(game.runGame(new agents.dwl.Agent(), getLevel("./levels/original/lvl-1.txt"), 20, 0, true));
     }
 }

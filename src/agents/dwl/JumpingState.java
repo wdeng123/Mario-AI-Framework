@@ -30,9 +30,12 @@ public class JumpingState implements FSMState {
                 commitedToJump = true;
                 jumpTimer = getJumpDuration(observation, marioRow, marioCol);
                 
-                // Human-like mistake: occasionally misjudge jump timing
+                // Human-like mistake: occasionally misjudge jump timing (Phase 3)
                 if (agent.getEmotionSystem().shouldMakeMistake()) {
-                    jumpTimer += (int)((Math.random() - 0.5) * 10); // ±5 frame timing error
+                    float severity = agent.getEmotionSystem().getMistakeSeverity();
+                    int timingError = (int)((Math.random() - 0.5) * 15 * severity); // Timing error based on emotional state
+                    jumpTimer += timingError;
+                    jumpTimer = Math.max(3, jumpTimer); // Don't make it too short
                 }
             }
             

@@ -28,11 +28,15 @@ public class ExploringState implements FSMState {
             actions[MarioActions.JUMP.getValue()] = true;
         }
         
-        // Check for coins or power-ups nearby - human curiosity
-        if (agent.getEmotionSystem().shouldExploreForCoins() && 
-            hasCollectibleNearby(observation, marioRow, marioCol)) {
-            // Slightly adjust movement toward collectible
-            adjustForCollectible(actions, observation, marioRow, marioCol);
+        // Check for coins or power-ups nearby - human curiosity (Phase 3: Enhanced)
+        if (agent.getEmotionSystem().shouldExploreForCoins()) {
+            if (hasValuableCollectibleNearby(observation, marioRow, marioCol)) {
+                // Take suboptimal path for valuable items
+                adjustForValuableCollectible(actions, observation, marioRow, marioCol);
+            } else if (hasCollectibleNearby(observation, marioRow, marioCol)) {
+                // Slightly adjust movement toward normal collectible
+                adjustForCollectible(actions, observation, marioRow, marioCol);
+            }
         }
         
         // Cautious behavior - slow down if lots of threats ahead
@@ -50,10 +54,31 @@ public class ExploringState implements FSMState {
     @Override
     public GameState checkTransitions(MarioForwardModel model, Agent agent) {
         int[][] observation = model.getMarioSceneObservation();
+        int[][] enemies = model.getMarioEnemiesObservation();
         int marioRow = observation.length / 2;
         int marioCol = observation[0].length / 2;
         
-        // Transition to JUMPING if obstacle ahead (Phase 2: Simple transition logic)
+        // Priority 1: FLEEING if immediate enemy threat
+        if (hasImmediateEnemyThreat(enemies, marioRow, marioCol)) {
+            return GameState.FLEEING;
+        }
+        
+        // Priority 2: STUCK if Mario hasn't made progress
+        if (agent.getStuckCounter() > 3) {
+            return GameState.STUCK;
+        }
+        
+        // Priority 3: HESITATING if facing risky situation and emotional state suggests caution
+        if (agent.getEmotionSystem().shouldHesitate() && isVeryRisky(observation, enemies, marioRow, marioCol)) {
+            return GameState.HESITATING;
+        }
+        
+        // Priority 4: COLLECTING if valuable collectibles nearby and curious
+        if (agent.getEmotionSystem().shouldExploreForCoins() && hasValuableCollectible(observation, marioRow, marioCol)) {
+            return GameState.COLLECTING;
+        }
+        
+        // Priority 5: JUMPING if complex jump needed
         if (needsComplexJump(observation, marioRow, marioCol)) {
             return GameState.JUMPING;
         }
@@ -144,6 +169,28 @@ public class ExploringState implements FSMState {
     }
     
     /**
+     * Check for valuable collectibles worth taking suboptimal paths (Phase 3)
+     */
+    private boolean hasValuableCollectibleNearby(int[][] observation, int marioRow, int marioCol) {
+        // Look for power-ups or concentrated coins
+        int coinCount = 0;
+        boolean hasPowerUp = false;
+        
+        // Expanded search area for valuable items
+        for (int r = Math.max(0, marioRow - 3); r < Math.min(observation.length, marioRow + 4); r++) {
+            for (int c = marioCol; c < Math.min(observation[0].length, marioCol + 8); c++) {
+                if (observation[r][c] == 2) { // Coin
+                    coinCount++;
+                } else if (observation[r][c] == 9 || observation[r][c] == 7) { // Power-up or question block
+                    hasPowerUp = true;
+                }
+            }
+        }
+        
+        return hasPowerUp || coinCount >= 4; // Worth detouring for power-ups or lots of coins
+    }
+    
+    /**
      * Check for valuable collectibles worth transitioning to collecting state
      */
     private boolean hasValuableCollectible(int[][] observation, int marioRow, int marioCol) {
@@ -161,6 +208,97 @@ public class ExploringState implements FSMState {
         }
         
         return coinCount >= 3; // Worth collecting if 3+ coins nearby
+    }
+    
+    /**
+     * Adjust movement toward valuable collectibles (human-like suboptimal paths)
+     */
+    private void adjustForValuableCollectible(boolean[] actions, int[][] observation, int marioRow, int marioCol) {
+        // Look for valuable items above (worth jumping for)
+        for (int r = Math.max(0, marioRow - 4); r < marioRow; r++) {
+            for (int c = marioCol; c < Math.min(observation[0].length, marioCol + 5); c++) {
+                if (observation[r][c] == 9 || observation[r][c] == 7) { // Power-up blocks
+                    actions[MarioActions.JUMP.getValue()] = true;
+                    actions[MarioActions.SPEED.getValue()] = false; // Slow down for precision
+                    return;
+                }
+            }
+        }
+        
+        // Look for coin trails that require backtracking or vertical exploration
+        int coinsAbove = 0;
+        int coinsBelow = 0;
+        
+        for (int r = Math.max(0, marioRow - 3); r < marioRow; r++) {
+            for (int c = Math.max(0, marioCol - 2); c < Math.min(observation[0].length, marioCol + 4); c++) {
+                if (observation[r][c] == 2) coinsAbove++;
+            }
+        }
+        
+        for (int r = marioRow + 1; r < Math.min(observation.length, marioRow + 3); r++) {
+            for (int c = Math.max(0, marioCol - 2); c < Math.min(observation[0].length, marioCol + 4); c++) {
+                if (observation[r][c] == 2) coinsBelow++;
+            }
+        }
+        
+        // Human-like curiosity: explore coin concentrations
+        if (coinsAbove >= 3) {
+            actions[MarioActions.JUMP.getValue()] = true;
+            actions[MarioActions.SPEED.getValue()] = false; // Careful exploration
+        } else if (coinsBelow >= 2) {
+            // Sometimes humans drop down for coins (risky but curious behavior)
+            actions[MarioActions.RIGHT.getValue()] = false; // Stop to look around
+            actions[MarioActions.SPEED.getValue()] = false;
+        }
+    }
+    
+    /**
+     * Check if the situation is very risky (triggers hesitation)
+     */
+    private boolean isVeryRisky(int[][] observation, int[][] enemies, int marioRow, int marioCol) {
+        // Multiple enemies nearby
+        int enemyCount = 0;
+        for (int r = Math.max(0, marioRow - 2); r <= Math.min(enemies.length - 1, marioRow + 2); r++) {
+            for (int c = marioCol; c <= Math.min(enemies[0].length - 1, marioCol + 5); c++) {
+                if (enemies[r][c] != 0) {
+                    enemyCount++;
+                }
+            }
+        }
+        if (enemyCount >= 2) return true;
+        
+        // Large gap ahead
+        int gapWidth = 0;
+        for (int c = marioCol + 1; c < Math.min(observation[0].length, marioCol + 5); c++) {
+            boolean hasGround = false;
+            for (int r = marioRow + 1; r < observation.length; r++) {
+                if (observation[r][c] != 0) {
+                    hasGround = true;
+                    break;
+                }
+            }
+            if (!hasGround) {
+                gapWidth++;
+            } else {
+                break;
+            }
+        }
+        if (gapWidth >= 3) return true;
+        
+        // Very high obstacle
+        int wallHeight = 0;
+        if (marioCol + 1 < observation[0].length) {
+            for (int r = marioRow; r >= 0; r--) {
+                if (observation[r][marioCol + 1] != 0) {
+                    wallHeight++;
+                } else {
+                    break;
+                }
+            }
+        }
+        if (wallHeight >= 4) return true;
+        
+        return false;
     }
     
     /**
