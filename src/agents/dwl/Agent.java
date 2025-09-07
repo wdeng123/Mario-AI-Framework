@@ -85,8 +85,8 @@ public class Agent implements MarioAgent {
             return actions;
         }
         
-        // Check if we should hesitate before making risky moves (Phase 3: Emotion-based)
-        if (emotionSystem.shouldHesitate() && isRiskyMove(model)) {
+        // Check if we should hesitate before making risky moves (Optimized: Only for truly dangerous situations)
+        if (emotionSystem.shouldHesitate() && isReallyDangerous(model)) {
             hesitationCounter = emotionSystem.getHesitationDuration();
             return actions; // Stay still during hesitation
         }
@@ -146,29 +146,47 @@ public class Agent implements MarioAgent {
     }
     
     /**
-     * Check if the next move would be risky (Phase 3: Enhanced risk assessment)
+     * Check if the situation is really dangerous (Optimized: More selective criteria)
      */
-    private boolean isRiskyMove(MarioForwardModel model) {
+    private boolean isReallyDangerous(MarioForwardModel model) {
         int[][] observation = model.getMarioSceneObservation();
         int[][] enemies = model.getMarioEnemiesObservation();
         int marioRow = observation.length / 2;
         int marioCol = observation[0].length / 2;
         
-        // Check for large gaps ahead
+        // Only hesitate for truly dangerous situations:
+        
+        // 1. Multiple enemies very close (immediate threat)
+        int nearbyEnemies = countNearbyEnemies(enemies, marioRow, marioCol);
+        if (nearbyEnemies >= 2) return true;
+        
+        // 2. Very large gaps (>3 tiles wide) with enemies nearby
         int gapWidth = measureGapWidth(observation, marioRow, marioCol);
-        if (gapWidth > 2) return true; // Wide gaps are risky
+        if (gapWidth > 3 && nearbyEnemies > 0) return true;
         
-        // Check for high walls/obstacles
+        // 3. Very high walls (>4 tiles) with time pressure or enemies
         int obstacleHeight = measureObstacleHeight(observation, marioRow, marioCol);
-        if (obstacleHeight > 3) return true; // High obstacles are risky
+        if (obstacleHeight > 4 && (nearbyEnemies > 0 || model.getRemainingTime() < 100)) return true;
         
-        // Check for enemies nearby
-        if (hasEnemiesNearby(enemies, marioRow, marioCol)) return true;
-        
-        // Check for complex terrain (multiple obstacles in succession)
-        if (hasComplexTerrain(observation, marioRow, marioCol)) return true;
+        // 4. Complex multi-hazard situations (gap + high wall + enemy)
+        if (gapWidth > 2 && obstacleHeight > 2 && nearbyEnemies > 0) return true;
         
         return false;
+    }
+    
+    /**
+     * Count enemies in immediate vicinity (more precise than hasEnemiesNearby)
+     */
+    private int countNearbyEnemies(int[][] enemies, int marioRow, int marioCol) {
+        int count = 0;
+        for (int r = Math.max(0, marioRow - 2); r < Math.min(enemies.length, marioRow + 3); r++) {
+            for (int c = marioCol; c < Math.min(enemies[0].length, marioCol + 4); c++) {
+                if (enemies[r][c] != 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
     
     /**

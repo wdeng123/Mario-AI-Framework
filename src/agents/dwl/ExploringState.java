@@ -28,15 +28,17 @@ public class ExploringState implements FSMState {
             actions[MarioActions.JUMP.getValue()] = true;
         }
         
-        // Check for coins or power-ups nearby - human curiosity (Phase 3: Enhanced)
-        if (agent.getEmotionSystem().shouldExploreForCoins()) {
-            if (hasValuableCollectibleNearby(observation, marioRow, marioCol)) {
-                // Take suboptimal path for valuable items
-                adjustForValuableCollectible(actions, observation, marioRow, marioCol);
-            } else if (hasCollectibleNearby(observation, marioRow, marioCol)) {
-                // Slightly adjust movement toward normal collectible
-                adjustForCollectible(actions, observation, marioRow, marioCol);
-            }
+        // Enhanced coin collection - predictive and integrated (Optimized)
+        CoinTrail coinTrail = predictCoinTrail(observation, marioRow, marioCol);
+        if (coinTrail != null && (agent.getEmotionSystem().shouldExploreForCoins() || coinTrail.isHighValue)) {
+            // Adjust movement for predicted coin trail
+            adjustForCoinTrail(actions, coinTrail, marioRow, marioCol);
+        } else if (hasValuableCollectibleNearby(observation, marioRow, marioCol)) {
+            // Take suboptimal path for valuable items
+            adjustForValuableCollectible(actions, observation, marioRow, marioCol);
+        } else if (hasCollectibleNearby(observation, marioRow, marioCol)) {
+            // Slightly adjust movement toward normal collectible
+            adjustForCollectible(actions, observation, marioRow, marioCol);
         }
         
         // Cautious behavior - slow down if lots of threats ahead
@@ -73,10 +75,7 @@ public class ExploringState implements FSMState {
             return GameState.HESITATING;
         }
         
-        // Priority 4: COLLECTING if valuable collectibles nearby and curious
-        if (agent.getEmotionSystem().shouldExploreForCoins() && hasValuableCollectible(observation, marioRow, marioCol)) {
-            return GameState.COLLECTING;
-        }
+        // Priority 4: COLLECTING logic now integrated - removed separate state transition
         
         // Priority 5: JUMPING if complex jump needed
         if (needsComplexJump(observation, marioRow, marioCol)) {
@@ -329,5 +328,244 @@ public class ExploringState implements FSMState {
             return wallHeight > 2;
         }
         return false;
+    }
+    
+    /**
+     * Inner class to represent a predicted coin trail
+     */
+    private static class CoinTrail {
+        int startRow, startCol;
+        int endRow, endCol;
+        int coinCount;
+        boolean isHighValue; // Contains power-ups or many coins
+        String pattern; // "horizontal", "vertical", "arc", "cluster"
+        
+        CoinTrail(int startRow, int startCol, int endRow, int endCol, int coinCount, boolean isHighValue, String pattern) {
+            this.startRow = startRow;
+            this.startCol = startCol;
+            this.endRow = endRow;
+            this.endCol = endCol;
+            this.coinCount = coinCount;
+            this.isHighValue = isHighValue;
+            this.pattern = pattern;
+        }
+    }
+    
+    /**
+     * Predict coin trails ahead (2-3 tiles advance prediction)
+     */
+    private CoinTrail predictCoinTrail(int[][] observation, int marioRow, int marioCol) {
+        // Extended search area for predictive collection
+        int maxSearchCol = Math.min(observation[0].length, marioCol + 12);
+        int maxSearchRow = Math.min(observation.length, marioRow + 6);
+        int minSearchRow = Math.max(0, marioRow - 6);
+        
+        // Look for coin patterns ahead
+        
+        // 1. Horizontal coin trails
+        CoinTrail horizontal = findHorizontalCoinTrail(observation, marioRow, marioCol, maxSearchCol);
+        if (horizontal != null) return horizontal;
+        
+        // 2. Vertical coin trails (jumping sequences)
+        CoinTrail vertical = findVerticalCoinTrail(observation, marioRow, marioCol, maxSearchCol, minSearchRow, maxSearchRow);
+        if (vertical != null) return vertical;
+        
+        // 3. Arc-shaped coin trails (jump curves)
+        CoinTrail arc = findArcCoinTrail(observation, marioRow, marioCol, maxSearchCol, minSearchRow, maxSearchRow);
+        if (arc != null) return arc;
+        
+        // 4. Coin clusters worth detouring for
+        CoinTrail cluster = findCoinCluster(observation, marioRow, marioCol, maxSearchCol, minSearchRow, maxSearchRow);
+        if (cluster != null) return cluster;
+        
+        return null;
+    }
+    
+    /**
+     * Find horizontal coin trails
+     */
+    private CoinTrail findHorizontalCoinTrail(int[][] observation, int marioRow, int marioCol, int maxSearchCol) {
+        for (int r = Math.max(0, marioRow - 1); r <= Math.min(observation.length - 1, marioRow + 1); r++) {
+            int coinCount = 0;
+            int startCol = -1;
+            int endCol = -1;
+            boolean hasPowerUp = false;
+            
+            for (int c = marioCol + 1; c < maxSearchCol; c++) {
+                if (observation[r][c] == 2) { // Coin
+                    if (startCol == -1) startCol = c;
+                    endCol = c;
+                    coinCount++;
+                } else if (observation[r][c] == 9 || observation[r][c] == 7) { // Power-up
+                    if (startCol == -1) startCol = c;
+                    endCol = c;
+                    coinCount++;
+                    hasPowerUp = true;
+                } else if (coinCount > 0) {
+                    // Gap in trail, check if it's worth collecting
+                    break;
+                }
+            }
+            
+            // Return trail if it's worth collecting (3+ coins or any power-up)
+            if (coinCount >= 3 || hasPowerUp) {
+                return new CoinTrail(r, startCol, r, endCol, coinCount, hasPowerUp || coinCount >= 5, "horizontal");
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Find vertical coin trails (jumping sequences)
+     */
+    private CoinTrail findVerticalCoinTrail(int[][] observation, int marioRow, int marioCol, int maxSearchCol, int minSearchRow, int maxSearchRow) {
+        for (int c = marioCol + 2; c < Math.min(maxSearchCol, marioCol + 6); c++) {
+            int coinCount = 0;
+            int startRow = -1;
+            int endRow = -1;
+            boolean hasPowerUp = false;
+            
+            for (int r = minSearchRow; r < maxSearchRow; r++) {
+                if (observation[r][c] == 2) { // Coin
+                    if (startRow == -1) startRow = r;
+                    endRow = r;
+                    coinCount++;
+                } else if (observation[r][c] == 9 || observation[r][c] == 7) { // Power-up
+                    if (startRow == -1) startRow = r;
+                    endRow = r;
+                    coinCount++;
+                    hasPowerUp = true;
+                }
+            }
+            
+            // Vertical trails are valuable if they have 2+ coins or any power-up
+            if (coinCount >= 2 || hasPowerUp) {
+                return new CoinTrail(startRow, c, endRow, c, coinCount, hasPowerUp || coinCount >= 4, "vertical");
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Find arc-shaped coin trails (common in Mario levels)
+     */
+    private CoinTrail findArcCoinTrail(int[][] observation, int marioRow, int marioCol, int maxSearchCol, int minSearchRow, int maxSearchRow) {
+        // Look for arc patterns in a 4x4 area ahead
+        for (int baseCol = marioCol + 2; baseCol < Math.min(maxSearchCol - 3, marioCol + 8); baseCol++) {
+            int coinCount = 0;
+            boolean hasPowerUp = false;
+            int minRow = maxSearchRow, maxRow = minSearchRow;
+            int minCol = maxSearchCol, maxCol = 0;
+            
+            // Check arc pattern
+            for (int c = baseCol; c < baseCol + 4; c++) {
+                for (int r = Math.max(minSearchRow, marioRow - 3); r <= Math.min(maxSearchRow - 1, marioRow + 1); r++) {
+                    if (observation[r][c] == 2) { // Coin
+                        coinCount++;
+                        minRow = Math.min(minRow, r);
+                        maxRow = Math.max(maxRow, r);
+                        minCol = Math.min(minCol, c);
+                        maxCol = Math.max(maxCol, c);
+                    } else if (observation[r][c] == 9 || observation[r][c] == 7) { // Power-up
+                        coinCount++;
+                        hasPowerUp = true;
+                        minRow = Math.min(minRow, r);
+                        maxRow = Math.max(maxRow, r);
+                        minCol = Math.min(minCol, c);
+                        maxCol = Math.max(maxCol, c);
+                    }
+                }
+            }
+            
+            // Arc trails are valuable if they span vertically and horizontally with good coin density
+            if ((coinCount >= 4 || hasPowerUp) && (maxRow - minRow >= 2) && (maxCol - minCol >= 2)) {
+                return new CoinTrail(minRow, minCol, maxRow, maxCol, coinCount, hasPowerUp || coinCount >= 6, "arc");
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Find coin clusters worth detouring for
+     */
+    private CoinTrail findCoinCluster(int[][] observation, int marioRow, int marioCol, int maxSearchCol, int minSearchRow, int maxSearchRow) {
+        // Look for dense clusters of coins in nearby areas
+        for (int centerCol = marioCol + 2; centerCol < Math.min(maxSearchCol - 2, marioCol + 10); centerCol++) {
+            for (int centerRow = Math.max(minSearchRow + 1, marioRow - 2); centerRow <= Math.min(maxSearchRow - 2, marioRow + 2); centerRow++) {
+                int coinCount = 0;
+                boolean hasPowerUp = false;
+                
+                // Check 3x3 area around center
+                for (int r = centerRow - 1; r <= centerRow + 1; r++) {
+                    for (int c = centerCol - 1; c <= centerCol + 1; c++) {
+                        if (r >= 0 && r < observation.length && c >= 0 && c < observation[0].length) {
+                            if (observation[r][c] == 2) { // Coin
+                                coinCount++;
+                            } else if (observation[r][c] == 9 || observation[r][c] == 7) { // Power-up
+                                coinCount++;
+                                hasPowerUp = true;
+                            }
+                        }
+                    }
+                }
+                
+                // Clusters are valuable if they have 4+ coins in small area or any power-up
+                if (coinCount >= 4 || hasPowerUp) {
+                    return new CoinTrail(centerRow - 1, centerCol - 1, centerRow + 1, centerCol + 1, coinCount, hasPowerUp || coinCount >= 6, "cluster");
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Adjust movement for predicted coin trail
+     */
+    private void adjustForCoinTrail(boolean[] actions, CoinTrail trail, int marioRow, int marioCol) {
+        switch (trail.pattern) {
+            case "horizontal":
+                // Continue moving right at appropriate speed
+                actions[MarioActions.RIGHT.getValue()] = true;
+                actions[MarioActions.SPEED.getValue()] = !trail.isHighValue; // Slow down for high-value trails
+                
+                // Jump if coins are above current level
+                if (trail.startRow < marioRow) {
+                    actions[MarioActions.JUMP.getValue()] = true;
+                }
+                break;
+                
+            case "vertical":
+                // Position for jumping sequence
+                actions[MarioActions.RIGHT.getValue()] = true;
+                actions[MarioActions.SPEED.getValue()] = false; // Precision movement
+                
+                // Jump for vertical collection
+                if (Math.abs(marioCol + 1 - trail.startCol) <= 1) {
+                    actions[MarioActions.JUMP.getValue()] = true;
+                }
+                break;
+                
+            case "arc":
+                // Timing-based movement for arc collection
+                actions[MarioActions.RIGHT.getValue()] = true;
+                actions[MarioActions.SPEED.getValue()] = trail.coinCount >= 6; // Speed up for long arcs
+                
+                // Jump at optimal timing
+                if (marioCol + 2 >= trail.startCol && marioCol <= trail.endCol - 2) {
+                    actions[MarioActions.JUMP.getValue()] = true;
+                }
+                break;
+                
+            case "cluster":
+                // Careful approach to cluster
+                actions[MarioActions.RIGHT.getValue()] = true;
+                actions[MarioActions.SPEED.getValue()] = false; // Slow and careful
+                
+                // Jump if cluster is elevated
+                if (trail.startRow < marioRow - 1) {
+                    actions[MarioActions.JUMP.getValue()] = true;
+                }
+                break;
+        }
     }
 }

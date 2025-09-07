@@ -8,9 +8,9 @@ import engine.helper.GameStatus;
  * Tracks confidence, caution, and curiosity levels that influence behavior
  */
 public class EmotionSystem {
-    private float confidence = 0.7f;     // How confident Mario feels (0.0 - 1.0)
-    private float caution = 0.5f;        // How cautious Mario is (0.0 - 1.0)
-    private float curiosity = 0.6f;      // How curious Mario is about exploration (0.0 - 1.0)
+    private float confidence = 0.8f;     // How confident Mario feels (0.0 - 1.0) - Optimized: Higher initial confidence
+    private float caution = 0.4f;        // How cautious Mario is (0.0 - 1.0) - Optimized: Lower initial caution
+    private float curiosity = 0.75f;      // How curious Mario is about exploration (0.0 - 1.0) - Optimized: Higher coin curiosity
     
     // Emotional state tracking
     private int consecutiveDeaths = 0;
@@ -87,9 +87,9 @@ public class EmotionSystem {
      * Note: Learning system data persists across levels
      */
     public void resetEmotions() {
-        confidence = 0.7f;
-        caution = 0.5f;
-        curiosity = 0.6f;
+        confidence = 0.8f; // Optimized: Higher baseline
+        caution = 0.4f;    // Optimized: Lower baseline
+        curiosity = 0.75f; // Optimized: Higher baseline
         consecutiveDeaths = 0;
         coinsCollected = 0;
         enemiesKilled = 0;
@@ -98,36 +98,36 @@ public class EmotionSystem {
     }
     
     /**
-     * Should Mario hesitate before making a risky move? (Phase 3: Emotion-based)
+     * Should Mario hesitate before making a risky move? (Optimized: Reduced hesitation)
      */
     public boolean shouldHesitate() {
-        // Base hesitation increases with caution and decreases with confidence
-        float hesitationChance = (caution * 0.3f) + ((1.0f - confidence) * 0.2f);
+        // Reduced base hesitation probabilities
+        float hesitationChance = (caution * 0.15f) + ((1.0f - confidence) * 0.1f);
         
-        // Recent deaths make Mario more hesitant
+        // Reduced death penalty for hesitation
         if (consecutiveDeaths > 0) {
-            hesitationChance += Math.min(0.3f, consecutiveDeaths * 0.1f);
+            hesitationChance += Math.min(0.15f, consecutiveDeaths * 0.05f);
         }
         
         return Math.random() < hesitationChance;
     }
     
     /**
-     * Get hesitation duration based on emotional state
+     * Get hesitation duration based on emotional state (Optimized: Shorter duration)
      */
     public int getHesitationDuration() {
-        int baseFrames = 15;
+        int baseFrames = 8; // Reduced base frames
         
-        // More cautious = longer hesitation
-        baseFrames += (int)(caution * 20);
+        // Reduced caution multiplier
+        baseFrames += (int)(caution * 10);
         
-        // Low confidence = longer hesitation
-        baseFrames += (int)((1.0f - confidence) * 15);
+        // Reduced confidence penalty
+        baseFrames += (int)((1.0f - confidence) * 8);
         
-        // Recent deaths increase hesitation time
-        baseFrames += consecutiveDeaths * 5;
+        // Reduced death penalty
+        baseFrames += consecutiveDeaths * 2;
         
-        return Math.max(10, Math.min(60, baseFrames)); // 10-60 frames (0.4-2.4 seconds)
+        return Math.max(5, Math.min(25, baseFrames)); // 5-25 frames (0.2-1.0 seconds) - Much shorter
     }
     
     /**
@@ -154,17 +154,17 @@ public class EmotionSystem {
     }
     
     /**
-     * Should Mario explore for coins? (Phase 3: Emotion-based)
+     * Should Mario explore for coins? (Optimized: Higher exploration rate)
      */
     public boolean shouldExploreForCoins() {
-        // Base exploration driven by curiosity
-        float explorationChance = curiosity * 0.4f;
+        // Increased base exploration driven by curiosity
+        float explorationChance = curiosity * 0.6f;
         
-        // High confidence encourages exploration
-        explorationChance += confidence * 0.15f;
+        // Higher confidence bonus for exploration
+        explorationChance += confidence * 0.25f;
         
-        // Low caution encourages risk-taking for rewards
-        explorationChance += (1.0f - caution) * 0.1f;
+        // Higher reward for risk-taking
+        explorationChance += (1.0f - caution) * 0.2f;
         
         return Math.random() < explorationChance;
     }
