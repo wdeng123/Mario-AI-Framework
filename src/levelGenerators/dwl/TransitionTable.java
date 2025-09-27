@@ -16,7 +16,7 @@ public class TransitionTable {
 
         // GROUND_FLAT transitions - safe, balanced
         Map<ChunkType, Double> groundFlatTrans = new HashMap<>();
-        groundFlatTrans.put(ChunkType.GROUND_FLAT, 0.3);
+        groundFlatTrans.put(ChunkType.GROUND_FLAT, 0.25);
         groundFlatTrans.put(ChunkType.GROUND_HILL, 0.2);
         groundFlatTrans.put(ChunkType.GAP_SMALL, 0.15);
         groundFlatTrans.put(ChunkType.PIPE_SECTION, 0.15);

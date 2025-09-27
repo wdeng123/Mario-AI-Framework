@@ -17,12 +17,12 @@ public class MarkovChain {
         this.generatedSequence = new ArrayList<>();
     }
 
-    public ChunkType generateNextChunk(int difficulty, int position, int totalLength) {
+    public ChunkType generateNextChunk(int difficulty, int currentPosition, int remainingLength) {
         // Apply constraints for safe level generation
         ChunkType nextChunk = applyConstraints(
             transitionTable.getNextChunk(currentState, random, difficulty),
-            position,
-            totalLength
+            currentPosition,
+            remainingLength
         );
 
         generatedSequence.add(nextChunk);
@@ -31,9 +31,9 @@ public class MarkovChain {
         return nextChunk;
     }
 
-    private ChunkType applyConstraints(ChunkType proposed, int position, int totalLength) {
-        // Force safe start and end sections
-        if (position < 1 || position > totalLength - 2) {
+    private ChunkType applyConstraints(ChunkType proposed, int currentPosition, int remainingLength) {
+        // Force safe end section when close to level end
+        if (remainingLength < 20) {
             return ChunkType.GROUND_FLAT;
         }
 
@@ -43,6 +43,10 @@ public class MarkovChain {
 
             // No consecutive gaps
             if (isGapChunk(lastChunk) && isGapChunk(proposed)) {
+                return ChunkType.GROUND_FLAT;
+            }
+
+            if (isGapChunk(lastChunk) && proposed == ChunkType.PLATFORM_JUMP) {
                 return ChunkType.GROUND_FLAT;
             }
 

@@ -38,7 +38,8 @@ public class LevelGenerator implements MarioLevelGenerator {
         // Generate main level content
         while (currentX < levelLength - 10 && timer.getRemainingTime() > 1000) {
             int difficulty = calculateDifficulty(currentX, levelLength);
-            ChunkType nextChunkType = markovChain.generateNextChunk(difficulty, chunkCount, levelLength / 8);
+            int remainingLength = levelLength - currentX;
+            ChunkType nextChunkType = markovChain.generateNextChunk(difficulty, currentX, remainingLength);
 
 
             LevelChunk chunk = new LevelChunk(nextChunkType, baseFloor);

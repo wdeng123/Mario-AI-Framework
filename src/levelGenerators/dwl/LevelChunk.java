@@ -186,6 +186,13 @@ public class LevelChunk {
     private int buildPlatformJump(MarioLevelModel model, int startX, Random random) {
         int length = 10 + random.nextInt(4);
 
+        // Add landing ground first to ensure reachability after gaps
+        for (int x = startX; x < startX + 3 && x < model.getWidth(); x++) {
+            for (int y = baseFloor; y < model.getHeight(); y++) {
+                model.setBlock(x, y, MarioLevelModel.GROUND);
+            }
+        }
+
         // Create floating platforms
         int platformY = baseFloor - 3 - random.nextInt(2);
         int platformStart = startX + 3;
